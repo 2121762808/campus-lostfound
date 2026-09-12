@@ -87,6 +87,9 @@
   .sub-seg { display:flex; gap:8px; margin:-6px 0 14px; }
   .sub-seg div { font-size:12.5px; padding:6px 14px; border-radius:99px; cursor:pointer; background:#f8ecdd; color:#b08a63; font-weight:600; transition:.2s; }
   .sub-seg div.active { background:#ffe0c7; color:#c26a3d; }
+  /* ==================== 新增样式：双钱包登录模式 ==================== */
+  .check-row { display:flex; gap:8px; align-items:flex-start; font-size:13px; color:var(--text); margin:12px 0; cursor:pointer; line-height:1.6; font-weight:500; }
+  .check-row input { width:auto; margin-top:4px; accent-color:#ff8a5c; }
 
   .mnemonic-box {
     background:#fff8f0; border:1.5px dashed #ffb26b; border-radius:14px;
@@ -195,7 +198,7 @@
 
     <div class="phone-title">
       <h1>欢迎使用 <span class="grad-text">校园链上失物招领</span></h1>
-      <div class="sub">本地托管钱包 · 私钥加密存储 · 无需 MetaMask</div>
+      <div class="sub">MetaMask 自管密钥签名 · 无插件则用内置托管钱包，无需助记词即可体验</div>
     </div>
 
     <div class="head-marquee marquee">
@@ -203,7 +206,21 @@
     </div>
 
     <div class="auth-body">
-      <div class="seg">
+      <!-- 【新增】钱包模式选择：MetaMask 与本地钱包是两套相互独立的身份 -->
+      <div class="seg" id="modeSeg">
+        <div data-w="local" class="active" onclick="switchWalletMode('local')">🔑 本地钱包</div>
+        <div data-w="metamask" onclick="switchWalletMode('metamask')">🦊 MetaMask</div>
+      </div>
+
+      <!-- 【新增】MetaMask 登录面板：签名全部交由插件完成 -->
+      <div id="mm-pane" style="display:none;text-align:center">
+        <div style="font-size:48px">🦊</div>
+        <div class="hint" style="margin:8px 0 16px">交易签名全部由 MetaMask 插件完成，网页无法获取私钥；<br>同一套助记词导入任意设备的 MetaMask，即可恢复同一身份。</div>
+        <button class="btn" style="width:100%" onclick="connectMetaMask()">连接 MetaMask</button>
+      </div>
+
+      <div id="local-pane">
+      <div class="seg" id="authSeg">
         <div data-m="login" class="active" onclick="switchAuth('login')">登 录</div>
         <div data-m="register" onclick="switchAuth('register')">注 册</div>
       </div>
@@ -224,11 +241,8 @@
         </div>
 
         <div id="reg-create">
-          <div id="mnemonicArea" style="display:none">
-            <label>您的助记词（请抄写并妥善保管）</label>
-            <div class="mnemonic-box" id="mnemonicText"></div>
-            <div class="warn">⚠️ 助记词是找回钱包的唯一凭证，平台不存储、无法找回。</div>
-          </div>
+          <!-- 托管钱包：无需助记词，设置密码即创建，平台代签上链 -->
+          <div class="hint" style="margin:0 0 6px">🎒 无需助记词：自动生成 0x 私钥并用密码加密托管在本机浏览器，交易由平台自动签名上链。助记词可随时在「设置 → 钱包面板」验证密码后导出。</div>
           <label>设置密码</label>
           <input id="c-pass" type="password" placeholder="至少 6 位，用于加密本地私钥" />
           <label>确认密码</label>
@@ -238,11 +252,12 @@
 
         <div id="reg-import" style="display:none">
           <label>私钥或助记词</label>
-          <textarea id="i-secret" placeholder="粘贴 0x 开头的私钥，或 12 个助记词"></textarea>
+          <textarea id="i-secret" placeholder="粘贴 12 个 BIP39 助记词，或 0x 开头 + 64 位十六进制私钥"></textarea>
           <label>设置密码</label>
           <input id="i-pass" type="password" placeholder="用于加密本地存储" />
           <button class="btn" style="width:100%;margin-top:20px" onclick="importWallet()">导入并登录</button>
         </div>
+      </div>
       </div>
     </div>
 
@@ -331,6 +346,20 @@
     </div>
 
     <div class="panel" id="panel-settings">
+      <!-- 【新增】钱包面板：展示登录模式 + 导出助记词（需验证钱包密码） -->
+      <div class="card form-card" style="margin-bottom:18px">
+        <h3>👛 钱包面板</h3>
+        <div class="desc" id="wpModeDesc"></div>
+        <div id="wpExportArea">
+          <label>验证钱包密码</label>
+          <input id="wp-pass" type="password" placeholder="输入当前钱包密码以导出助记词" />
+          <button class="btn" style="width:100%;margin-top:14px" onclick="exportMnemonic()">🔐 导出助记词</button>
+          <div id="wpMnArea" style="display:none">
+            <div class="mnemonic-box" id="wpMnText"></div>
+            <div class="warn">🚨 安全警告：助记词泄露将丢失全部资产！请勿截图、勿发给任何人。</div>
+          </div>
+        </div>
+      </div>
       <div class="card form-card">
         <h3>⚙️ 节点与合约配置</h3>
         <div class="desc">无需 MetaMask：通过 RPC 直连区块链节点，交易由本地钱包私钥签名。</div>
@@ -387,6 +416,8 @@ const LS_RPC = "lf_rpc";
 const LS_ADDR = "lf_addr";
 
 let provider, wallet, contract, account;
+// 【新增】钱包模式状态：'local'（本地托管钱包）或 'metamask'（插件钱包），两套身份相互独立
+let walletMode = "local", mmSigner = null;
 let rpcUrl = localStorage.getItem(LS_RPC) || DEFAULT_RPC;
 let contractAddr = localStorage.getItem(LS_ADDR) || DEFAULT_ADDR;
 
@@ -398,28 +429,33 @@ let contractAddr = localStorage.getItem(LS_ADDR) || DEFAULT_ADDR;
 })();
 
 // ==================== 钱包：创建 / 导入 / 登录 ====================
-function getKeystores() { try { return JSON.parse(localStorage.getItem(LS_KEYS) || "{}"); } catch { return {}; } }
-function saveKeystore(addr, json) { const k = getKeystores(); k[addr.toLowerCase()] = json; localStorage.setItem(LS_KEYS, JSON.stringify(k)); }
+// 【新增】存储结构升级：每个账号保存 { ks: 加密私钥(keystore), phrase: 加密助记词 }
+// 兼容旧版数据（旧版直接存 keystore 字符串，无助记词可导出）
+function getKeystores() {
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_KEYS) || "{}");
+    for (const k in o) if (typeof o[k] === "string") o[k] = { ks: o[k], phrase: null };
+    return o;
+  } catch { return {}; }
+}
+function saveKeystore(addr, ksJson, phraseEnc) { const k = getKeystores(); k[addr.toLowerCase()] = { ks: ksJson, phrase: phraseEnc || null }; localStorage.setItem(LS_KEYS, JSON.stringify(k)); }
 
-let pendingWallet = null;
-
+// 【修改】托管钱包创建：一步完成，无需助记词即可体验完整 Web3 流程
 async function createWallet() {
   const p1 = val("c-pass"), p2 = val("c-pass2");
   if (p1.length < 6) return toast("密码至少 6 位", "err");
   if (p1 !== p2) return toast("两次密码不一致", "err");
   try {
-    if (!pendingWallet) {
-      pendingWallet = ethers.Wallet.createRandom();
-      document.getElementById("mnemonicText").textContent = pendingWallet.mnemonic.phrase;
-      document.getElementById("mnemonicArea").style.display = "block";
-      document.getElementById("createBtn").textContent = "我已备份助记词，加密并进入";
-      toast("请抄写助记词后再次点击按钮", "info");
-      return;
-    }
-    toast("正在加密钱包（约几秒钟）…", "info");
-    const json = await pendingWallet.encrypt(p1);
-    saveKeystore(pendingWallet.address, json);
-    enterApp(pendingWallet);
+    toast("正在创建并加密托管钱包（约几秒钟）…", "info");
+    // 随机生成 0x 开头 + 64 位十六进制私钥与 BIP39 12 词助记词（不写死、每次随机）
+    const w = ethers.Wallet.createRandom();
+    const json = await w.encrypt(p1);
+    // 助记词用同一密码 AES-GCM 加密托管，用户可随时在钱包面板验证密码导出
+    const phraseEnc = await encryptText(w.mnemonic.phrase, p1);
+    saveKeystore(w.address, json, phraseEnc);
+    walletMode = "local";
+    toast("钱包已创建，平台将代您自动签名上链", "ok");
+    enterApp(w);
   } catch (e) { toast("创建失败：" + shortErr(e), "err"); }
 }
 
@@ -427,15 +463,26 @@ async function importWallet() {
   const secret = val("i-secret"), p = val("i-pass");
   if (!secret) return toast("请输入私钥或助记词", "err");
   if (p.length < 6) return toast("密码至少 6 位", "err");
+  const isPk = secret.startsWith("0x") || /^[0-9a-fA-F]{64}$/.test(secret);
+  let w, phraseEnc = null;
   try {
-    let w;
-    if (secret.startsWith("0x") || /^[0-9a-fA-F]{64}$/.test(secret)) w = new ethers.Wallet(secret);
-    else w = ethers.Wallet.fromPhrase(secret.replace(/\s+/g, " ").trim());
+    if (isPk) w = new ethers.Wallet(secret);   // 私钥导入：0x 开头 + 64 位十六进制
+    else {
+      const phrase = secret.replace(/\s+/g, " ").trim();
+      w = ethers.Wallet.fromPhrase(phrase);    // 助记词导入：还原出对应格式私钥
+      phraseEnc = await encryptText(phrase, p); // 助记词加密保存，便于以后导出
+    }
+  } catch {
+    // 【新增】区分两种导入方式的中文友好报错
+    return toast(isPk ? "私钥格式错误：应为 0x 开头 + 64 位十六进制" : "助记词无效：请检查 12 个单词的拼写与顺序", "err");
+  }
+  try {
     toast("正在加密钱包…", "info");
     const json = await w.encrypt(p);
-    saveKeystore(w.address, json);
+    saveKeystore(w.address, json, phraseEnc);
+    walletMode = "local";
     enterApp(w);
-  } catch (e) { toast("导入失败：私钥或助记词格式不正确", "err"); }
+  } catch (e) { toast("导入失败：" + shortErr(e), "err"); }
 }
 
 let selectedAddr = null;
@@ -458,21 +505,22 @@ async function login() {
   if (!selectedAddr) return toast("请先选择或注册钱包", "err");
   try {
     toast("解密钱包中…", "info");
-    const ks = getKeystores()[selectedAddr];
-    const w = await ethers.Wallet.fromEncryptedJson(ks, p);
+    const entry = getKeystores()[selectedAddr];
+    const w = await ethers.Wallet.fromEncryptedJson(entry.ks, p);
+    walletMode = "local";
     enterApp(w);
-  } catch (e) { toast("密码错误或 keystore 损坏", "err"); }
+  } catch (e) { toast("密码错误或 keystore 数据损坏", "err"); }
 }
 
 function logout() {
-  wallet = null; contract = null; account = null; pendingWallet = null;
+  wallet = null; contract = null; account = null; mmSigner = null;
   document.getElementById("appView").style.display = "none";
   document.getElementById("authView").style.display = "flex";
   switchAuth("login");
 }
 
 function switchAuth(m) {
-  document.querySelectorAll(".seg div").forEach(t => t.classList.toggle("active", t.dataset.m === m));
+  document.querySelectorAll("#authSeg div").forEach(t => t.classList.toggle("active", t.dataset.m === m));
   document.getElementById("auth-login").style.display = m === "login" ? "block" : "none";
   document.getElementById("auth-register").style.display = m === "register" ? "block" : "none";
   if (m === "login") renderAcctList();
@@ -487,30 +535,122 @@ function switchReg(m) {
 }
 
 function resetCreate() {
-  pendingWallet = null;
-  document.getElementById("mnemonicArea").style.display = "none";
-  document.getElementById("createBtn").textContent = "创建钱包";
+  document.getElementById("c-pass").value = "";
+  document.getElementById("c-pass2").value = "";
+}
+
+// ==================== 【新增模块】助记词加密存储 ====================
+// 使用浏览器原生 WebCrypto：钱包密码经 PBKDF2 派生 AES-GCM 密钥，加密助记词后存入 localStorage
+async function deriveAesKey(password, salt) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+const _b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+const _unb = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function encryptText(plain, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveAesKey(password, salt);
+  const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(plain));
+  return { salt: _b64(salt), iv: _b64(iv), data: _b64(data) };
+}
+async function decryptText(obj, password) {
+  const key = await deriveAesKey(password, _unb(obj.salt));
+  const buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb(obj.iv) }, key, _unb(obj.data));
+  return new TextDecoder().decode(buf);
+}
+
+// ==================== 【新增模块】钱包模式切换 ====================
+function switchWalletMode(m) {
+  document.querySelectorAll("#modeSeg div").forEach(t => t.classList.toggle("active", t.dataset.w === m));
+  document.getElementById("mm-pane").style.display = m === "metamask" ? "block" : "none";
+  document.getElementById("local-pane").style.display = m === "local" ? "block" : "none";
+  if (m === "metamask" && !window.ethereum) toast("未检测到 MetaMask 插件，可改用本地钱包", "info");
+}
+
+// ==================== 【新增模块】MetaMask 登录（模式1） ====================
+// 私钥全程由 MetaMask 插件保管，网页只能拿到地址和签名结果
+async function connectMetaMask() {
+  if (!window.ethereum) return toast("未检测到 MetaMask 插件，请安装扩展后刷新（或使用本地钱包）", "err");
+  try {
+    toast("等待 MetaMask 授权…", "info");
+    const bp = new ethers.BrowserProvider(window.ethereum);
+    await bp.send("eth_requestAccounts", []);          // 弹窗请求用户授权
+    await ensureMmNetwork();                            // 确保 MetaMask 切到与 RPC 一致的链
+    mmSigner = await new ethers.BrowserProvider(window.ethereum).getSigner();
+    const addr = await mmSigner.getAddress();
+    walletMode = "metamask";
+    enterApp(mmSigner, addr);
+  } catch (e) {
+    if (e.code === 4001 || e.code === "ACTION_REJECTED") return toast("您已取消 MetaMask 授权", "err");
+    toast("MetaMask 连接失败：" + shortErr(e), "err");
+  }
+}
+
+// 【新增】让 MetaMask 切换/添加与当前 RPC 一致的链（默认 Hardhat 本地链 31337）
+async function ensureMmNetwork() {
+  const probe = new ethers.JsonRpcProvider(rpcUrl);
+  const chainId = (await probe.getNetwork()).chainId;
+  const hex = "0x" + chainId.toString(16);
+  const cur = await window.ethereum.request({ method: "eth_chainId" });
+  if (cur.toLowerCase() === hex.toLowerCase()) return;
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
+  } catch (e) {
+    if (e.code === 4902) { // 链不存在 → 自动添加
+      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: hex, chainName: chainId === 31337n ? "Hardhat 本地链" : "CampusChain " + chainId, rpcUrls: [rpcUrl], nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 } }] });
+    } else throw e;
+  }
+}
+
+// ==================== 【新增模块】导出助记词（钱包面板，需验证密码） ====================
+async function exportMnemonic() {
+  if (walletMode !== "local") return toast("MetaMask 模式：私钥与助记词由插件保管，请在 MetaMask 内导出", "err");
+  const entry = getKeystores()[(account || "").toLowerCase()];
+  if (!entry || !entry.phrase) return toast("该账号未保存助记词（旧版创建或纯私钥导入），无法导出", "err");
+  const p = val("wp-pass");
+  if (!p) return toast("请输入钱包密码", "err");
+  try {
+    await ethers.Wallet.fromEncryptedJson(entry.ks, p);  // 第一步：验证密码正确
+    const phrase = await decryptText(entry.phrase, p);   // 第二步：解密出助记词
+    document.getElementById("wpMnText").textContent = phrase;
+    document.getElementById("wpMnArea").style.display = "block";
+    toast("密码验证通过，助记词已显示", "ok");
+  } catch { toast("密码错误，无法导出助记词", "err"); }
 }
 
 // ==================== 连接与应用入口 ====================
-async function enterApp(w) {
+// 【修改】enterApp 支持两种身份：本地钱包传 Wallet 对象；MetaMask 传 (signer, 地址)
+async function enterApp(identity, addrOverride) {
   try {
     const probe = new ethers.JsonRpcProvider(rpcUrl);
     const net = await probe.getNetwork();
     // cacheTimeout: -1 关闭缓存，防止连续交易拿到过期 nonce
     provider = new ethers.JsonRpcProvider(rpcUrl, Number(net.chainId), { cacheTimeout: -1, staticNetwork: true });
-    wallet = w.connect(provider);
-    account = w.address;
+    if (walletMode === "metamask") {
+      wallet = identity;                  // MetaMask：签名走插件，不经网页
+      account = addrOverride;
+    } else {
+      wallet = identity.connect(provider); // 本地钱包：网页内存中的私钥签名
+      account = identity.address;
+    }
     if (!ethers.isAddress(contractAddr)) { toast("请先在「设置」中配置合约地址", "err"); }
     contract = ethers.isAddress(contractAddr) ? new ethers.Contract(contractAddr, ABI, wallet) : null;
 
     document.getElementById("authView").style.display = "none";
     document.getElementById("appView").style.display = "block";
-    document.getElementById("addrText").textContent = shortAddr(account);
+    document.getElementById("addrText").textContent = (walletMode === "metamask" ? "🦊 " : "") + shortAddr(account);
     document.getElementById("netBadge").textContent = `chainId ${net.chainId}`;
     document.getElementById("s-rpc").value = rpcUrl;
     document.getElementById("s-addr").value = contractAddr;
     document.getElementById("faucetBox").style.display = rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost") ? "block" : "none";
+    // 【新增】钱包面板：按模式展示说明，仅本地钱包开放导出助记词
+    document.getElementById("wpModeDesc").innerHTML = walletMode === "metamask"
+      ? "当前模式：<b>🦊 MetaMask</b>。密钥由您自行管理，每笔交易在插件中手动签名。"
+      : "当前模式：<b>🔑 内置托管钱包</b>。交易由平台自动签名上链，无需助记词；验证密码后可导出 BIP39 助记词实现自主管理。";
+    document.getElementById("wpExportArea").style.display = walletMode === "local" ? "block" : "none";
+    document.getElementById("wpMnArea").style.display = "none";
+    document.getElementById("wp-pass").value = "";
     toast(`欢迎回来，${shortAddr(account)}`, "ok");
     refreshAll();
   } catch (e) { toast("节点连接失败，请检查 RPC 地址：" + shortErr(e), "err"); }
@@ -522,7 +662,9 @@ async function saveSettings() {
   if (a && ethers.isAddress(a)) { contractAddr = a; localStorage.setItem(LS_ADDR, a); }
   else if (a) return toast("合约地址格式不正确", "err");
   toast("配置已保存，重新连接中…", "info");
-  await enterApp(new ethers.Wallet(wallet.privateKey));
+  // 【新增】MetaMask 模式无私钥可取，需重新走授权并切换网络；本地钱包直接重连
+  if (walletMode === "metamask") await connectMetaMask();
+  else await enterApp(new ethers.Wallet(wallet.privateKey));
 }
 
 async function faucet() {
@@ -679,7 +821,8 @@ async function renderBounties() {
 // ==================== 工具 ====================
 async function sendTx(fn, okMsg) {
   try {
-    toast("本地钱包签名并发送交易…", "info");
+    // 【新增】按钱包模式区分提示语
+    toast(walletMode === "metamask" ? "请在 MetaMask 弹窗中确认签名…" : "本地钱包签名并发送交易…", "info");
     const resp = await fn();
     toast("等待区块确认…", "info");
     await resp.wait();
@@ -687,6 +830,8 @@ async function sendTx(fn, okMsg) {
     refreshAll();
   } catch (e) {
     let m = shortErr(e);
+    // 【新增】MetaMask 用户拒绝签名的友好提示
+    if (e.code === 4001 || e.code === "ACTION_REJECTED" || m.includes("user rejected")) m = "您已取消签名";
     if (m.includes("insufficient funds")) m = "余额不足，可先在「设置」页领取测试币";
     toast("操作失败：" + m, "err");
   }
