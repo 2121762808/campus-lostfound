@@ -646,7 +646,8 @@ async function enterApp(identity, addrOverride) {
     document.getElementById("netBadge").textContent = `chainId ${net.chainId}`;
     document.getElementById("s-rpc").value = rpcUrl;
     document.getElementById("s-addr").value = contractAddr;
-    document.getElementById("faucetBox").style.display = rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost") ? "block" : "none";
+    // 水龙头仅在本地测试链（chainId 31337）显示，与 RPC 地址写法无关
+    document.getElementById("faucetBox").style.display = Number(net.chainId) === 31337 ? "block" : "none";
     // 【新增】钱包面板：按模式展示说明，仅本地钱包开放导出助记词
     document.getElementById("wpModeDesc").innerHTML = walletMode === "metamask"
       ? "当前模式：<b>🦊 MetaMask</b>。密钥由您自行管理，每笔交易在插件中手动签名。"
