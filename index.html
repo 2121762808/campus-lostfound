@@ -381,7 +381,10 @@
 
 <script>
 // ==================== 配置 ====================
-const DEFAULT_RPC = "http://127.0.0.1:8545";
+// 【新增】智能 RPC：页面从局域网 IP 打开时（如手机访问电脑），自动把 RPC 指向同一台主机的 8545 端口
+const _host = location.hostname;
+const _isLan = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(_host);
+const DEFAULT_RPC = _isLan ? `http://${_host}:8545` : "http://127.0.0.1:8545";
 const DEFAULT_ADDR = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // 可在「设置」中修改
 // Hardhat Account#0 公开测试私钥 —— 仅用于本地链水龙头，主网切勿使用
 const FAUCET_PK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
