@@ -1,0 +1,16 @@
+# 依赖与构建产物
+node_modules/
+artifacts/
+cache/
+
+# 本地日志
+*.log
+
+# 私钥与助记词文件：绝对不要提交
+scripts/.deployer.json
+scripts/.ganache.json
+.env
+.env.*
+
+# Qoder/Trae 本地缓存
+.trae-html-share-packages/
