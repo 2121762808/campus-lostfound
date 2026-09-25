@@ -3,8 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CampusChain · 校园链上失物招领</title>
-<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<title>CampusChain · 校园链上失物招领（在线演示）</title>
+<meta name="description" content="校园链上失物招领 DApp 的公网演示站：拾获登记、悬赏托管、归属核对、链上归还与超时自动放款的完整流程体验，数据为浏览器内置演示账本。" />
+<!-- 【修复】ethers.js 加载策略：本地文件优先（零网络依赖、加载快），CDN 作后备。
+     原来仅引 CDN，本地断网/CDN 抖动时报 "ethers is not defined" -->
+<script src="ethers.umd.min.js"></script>
+<script>if (typeof ethers === "undefined") document.write('<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"><\/script>');</script>
 <style>
   :root {
     --bg: #fdf6ee;
@@ -39,6 +43,18 @@
   .btn.sm { padding:7px 15px; font-size:12.5px; border-radius:10px; margin:6px 6px 0 0; }
   .btn.green { background:linear-gradient(135deg,#0ea968,#34d399); box-shadow:0 6px 18px rgba(52,211,153,.3); }
   .btn.orange { background:linear-gradient(135deg,#f97316,#fb923c); box-shadow:0 6px 18px rgba(251,146,60,.3); }
+
+  /* 【新增】交易进行中的按钮加载动画：文字隐藏，转圈圈替代，并禁止重复点击 */
+  .btn.loading { position:relative; color:transparent !important; pointer-events:none; opacity:.75; transform:none; }
+  .btn.loading::after {
+    content:""; position:absolute; left:50%; top:50%; width:17px; height:17px; margin:-9px 0 0 -9px;
+    border:3px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%;
+    animation:btnspin .7s linear infinite;
+  }
+  .btn.ghost.loading::after, .btn.sm.loading::after {
+    border-color:rgba(194,106,61,.35); border-top-color:#c26a3d;
+  }
+  @keyframes btnspin { to { transform:rotate(360deg); } }
 
   .card {
     background:var(--glass); border:1px solid var(--glass-border); border-radius:22px;
@@ -228,6 +244,12 @@
       <div class="sub">MetaMask 自管密钥签名 · 无插件则用内置托管钱包，无需助记词即可体验</div>
     </div>
 
+    <!-- 【新增】HTTPS+本地节点冲突提示：HTTPS 页面访问 HTTP 本地节点会被浏览器拦截 -->
+    <div id="httpsWarn" style="display:none;background:#FFF3E6;border:1px solid #F0CFA8;color:#8A4A16;border-radius:14px;padding:12px 14px;font-size:12.5px;line-height:1.8;margin-bottom:12px">
+      ⚠️ 当前以 HTTPS 打开页面，但节点配置为本地地址，浏览器会拦截该请求导致「节点连接失败」。<br>
+      👉 本地演示请改用 <b>http://127.0.0.1:8000</b>（手机用同一 Wi-Fi 访问 <b>http://电脑IP:8000</b>）；本 HTTPS 链接仅供界面展示。
+    </div>
+
     <div class="head-marquee marquee">
       <div class="marquee-track" id="midTrack"></div>
     </div>
@@ -245,17 +267,15 @@
         <div class="hint" style="margin:8px 0 16px">交易签名全部由 MetaMask 插件完成，网页无法获取私钥；<br>同一套助记词导入任意设备的 MetaMask，即可恢复同一身份。</div>
         <button class="btn" style="width:100%" onclick="connectMetaMask()">连接 MetaMask</button>
 
-        <!-- 【新增】本地演示引导：首次使用三步上手（测试私钥为 Hardhat 全网公开，仅本地链可用） -->
+        <!-- 【改】本地演示引导：私钥不再写死（新建/重置工作区后会失效），改为从当前 Ganache 窗口取 -->
         <div style="text-align:left;margin-top:16px;background:#FFF7EE;border:1px solid #F3E0CE;border-radius:14px;padding:14px">
           <div style="font-weight:700;font-size:13px;color:#8A4419;margin-bottom:6px">🧪 本地演示 · 首次使用三步</div>
           <div class="hint" style="line-height:2">
             ① 浏览器安装 MetaMask 扩展（metamask.io）<br>
-            ② 插件内「添加账户 → 导入账户」，粘贴本地链公开测试私钥：<br>
-            <code id="mmTestKey" style="font-size:11px;word-break:break-all;background:#fff;padding:4px 8px;border-radius:8px;display:block;margin:4px 0">0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8416f34b0e2f8edeb2e</code>
-            <button class="btn ghost" style="width:100%;padding:8px" onclick="navigator.clipboard.writeText(document.getElementById('mmTestKey').textContent.trim());toast('测试私钥已复制','ok')">复制测试私钥</button>
+            ② 在 Ganache 窗口任选一个账户，点右侧「🔑」图标显示私钥并复制；再到 MetaMask「添加账户 → 导入账户」粘贴（每个账户自带 100 ETH）<br>
             ③ 点上方「连接 MetaMask」，两次弹窗都点「批准」即可
           </div>
-          <div class="hint" style="margin-top:6px;color:#B26A2E">⚠️ 该私钥为 Hardhat 公开测试账户，仅可在本地链使用，切勿用于真实网络</div>
+          <div class="hint" style="margin-top:6px;color:#B26A2E">⚠️ 每次新建或重置 Ganache 工作区都会换一批账户与合约地址，旧的 MetaMask 私钥、旧合约地址随即失效；此时请重新运行 start-campus.bat 部署，或在「设置」页点「领取测试币」。</div>
         </div>
       </div>
 
@@ -409,8 +429,8 @@
         <input id="s-addr" placeholder="0x..." />
         <button class="btn" style="width:100%;margin-top:20px" onclick="saveSettings()">保存并重新连接</button>
         <div id="faucetBox" style="display:none;margin-top:22px;padding-top:18px;border-top:1px dashed #f0e2d2">
-          <div class="desc">🚰 检测到本地测试链。新钱包没有 ETH？可从 Hardhat 测试账户领取：</div>
-          <button class="btn orange" style="width:100%" onclick="faucet()">领取 1 ETH 测试币</button>
+          <div class="desc">🚰 检测到本地测试链。新钱包没有 ETH？可从 Ganache 测试账户领取：</div>
+          <button class="btn orange" style="width:100%" onclick="faucet()">领取 5 ETH 测试币</button>
         </div>
       </div>
     </div>
@@ -450,13 +470,14 @@
 
 <script>
 // ==================== 配置 ====================
-// 【新增】智能 RPC：页面从局域网 IP 打开时（如手机访问电脑），自动把 RPC 指向同一台主机的 8545 端口
+// 【新增】智能 RPC：页面从局域网 IP 打开时（如手机访问电脑），自动把 RPC 指向同一台主机的 7545 端口
+// 注意：Ganache 默认只监听 127.0.0.1，手机要访问需在 Ganache 的 Workspace 设置中把 HOST 改为 0.0.0.0
 const _host = location.hostname;
 const _isLan = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(_host);
-const DEFAULT_RPC = _isLan ? `http://${_host}:8545` : "http://127.0.0.1:8545";
-const DEFAULT_ADDR = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // 可在「设置」中修改
-// Hardhat Account#0 公开测试私钥 —— 仅用于本地链水龙头，主网切勿使用
-const FAUCET_PK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const DEFAULT_RPC = _isLan ? `http://${_host}:7545` : "http://127.0.0.1:7545";
+const DEFAULT_ADDR = "0x860f1f3F45d4C8c6F08d0Ae37536adA975377A89"; // 由 scripts/deploy.js（--network ganache）自动写入
+// 本地链水龙头：直接用 Ganache 节点自带的解锁账户转账（无需在网页里存任何私钥，
+// 换/重置 Ganache 工作区后也不会因私钥过期而失败）
 
 const ABI = [
   "function foundCount() view returns (uint256)",
@@ -479,19 +500,41 @@ const ABI = [
   "function cancelBounty(uint256 id)",
   "function getFoundItem(uint256 id) view returns (tuple(uint256 id, address finder, string category, string description, string foundLocation, uint256 foundTime, string contact, uint8 status, address claimant, uint256 deposit, uint256 returnMarkedAt))",
   "function getBounty(uint256 id) view returns (tuple(uint256 id, address owner, string category, string description, string lostLocation, uint256 lostTime, string contact, uint256 reward, uint8 status, address finder, uint256 returnMarkedAt))",
-  "function getBountyApplicants(uint256 id) view returns (address[])"
+  "function getBountyApplicants(uint256 id) view returns (address[])",
+  "function hasApplied(uint256 id, address who) view returns (bool)"
 ];
 
 const STATUS = ["待认领", "已匹配", "已标记归还", "已完成", "已关闭"];
 const LS_KEYS = "lf_keystores";
-const LS_RPC = "lf_rpc";
-const LS_ADDR = "lf_addr";
+const LS_RPC = "lf_rpc2";  // 【改】键名升级：自动作废旧版保存的 Hardhat 8545 配置，改用 Ganache 7545
+const LS_ADDR = "lf_addr3";  // 【改】键名升级：作废旧工作区遗留的合约地址，改用当前链上已部署地址
 
 let provider, wallet, contract, account;
-// 【新增】钱包模式状态：'local'（本地托管钱包）或 'metamask'（插件钱包），两套身份相互独立
+// view：只读合约，始终直连本地节点；contract：写交易代理，只把签名这一步交给钱包
+let view = null;
+// 【提速】钱包模式状态：'local'（本地托管钱包）或 'metamask'（插件钱包），两套身份相互独立
 let walletMode = "local", mmSigner = null;
 let rpcUrl = localStorage.getItem(LS_RPC) || DEFAULT_RPC;
 let contractAddr = localStorage.getItem(LS_ADDR) || DEFAULT_ADDR;
+let chainIdNum = null;   // 链 ID 只探测一次，发交易时直接复用
+let nonceCache = null;   // 连续点击时避免重复向节点取 nonce
+
+// 【提速】全局复用一个节点连接：避免每次探测链 ID / 余额都新建 provider（省 TLS 与链检测往返）
+let _probe, _probeUrl = null;
+function nodeProbe() {
+  if (!_probe || _probeUrl !== rpcUrl) {
+    _probe = new ethers.JsonRpcProvider(rpcUrl, undefined, { cacheTimeout: -1, staticNetwork: true, pollingInterval: 500 });
+    _probeUrl = rpcUrl;
+  }
+  return _probe;
+}
+
+// HTTPS 页面 + 本地 HTTP 节点冲突检测：浏览器混合内容策略会拦截该请求，提前给出引导
+(function checkHttpsLocalRpc() {
+  if (location.protocol === "https:" && /^http:\/\/(127\.|localhost|192\.168\.|10\.|172\.)/.test(rpcUrl)) {
+    document.getElementById("httpsWarn").style.display = "block";
+  }
+})();
 
 // ==================== 滚动字幕 ====================
 (function initMarquee() {
@@ -585,7 +628,7 @@ async function login() {
 }
 
 function logout() {
-  wallet = null; contract = null; account = null; mmSigner = null;
+  wallet = null; contract = null; view = null; account = null; mmSigner = null; nonceCache = null;
   document.getElementById("appView").style.display = "none";
   document.getElementById("authView").style.display = "flex";
   switchAuth("login");
@@ -643,13 +686,18 @@ function switchWalletMode(m) {
 // ==================== 【新增模块】MetaMask 登录（模式1） ====================
 // 私钥全程由 MetaMask 插件保管，网页只能拿到地址和签名结果
 async function connectMetaMask() {
+  if (typeof ethers === "undefined") return toast("ethers.js 库未加载成功，请刷新页面重试", "err");
   if (!window.ethereum) return toast("未检测到 MetaMask 插件，请安装扩展后刷新（或使用本地钱包）", "err");
   try {
     toast("等待 MetaMask 授权…", "info");
-    const bp = new ethers.BrowserProvider(window.ethereum);
+    // 【提速】先从本地节点取 chainId（结果会被后续复用），再以显式链 ID 构造 BrowserProvider，省去一次链检测往返
+    let netId;
+    try { netId = (await nodeProbe().getNetwork()).chainId; } catch {}
+    // 【提速】轮询间隔降为 500ms（默认 4000ms），交易确认后页面能更快刷新
+    const bp = new ethers.BrowserProvider(window.ethereum, netId ?? undefined, { pollingInterval: 500 });
     await bp.send("eth_requestAccounts", []);          // 弹窗请求用户授权
     await ensureMmNetwork();                            // 确保 MetaMask 切到与 RPC 一致的链
-    mmSigner = await new ethers.BrowserProvider(window.ethereum).getSigner();
+    mmSigner = await bp.getSigner();
     const addr = await mmSigner.getAddress();
     walletMode = "metamask";
     showConnectRequest(mmSigner, addr); // 弹出“连接请求”确认框
@@ -659,10 +707,10 @@ async function connectMetaMask() {
   }
 }
 
-// 【新增】让 MetaMask 切换/添加与当前 RPC 一致的链（默认 Hardhat 本地链 31337）
+// 【新增】让 MetaMask 切换/添加与当前 RPC 一致的链（Ganache 本地链 1337）
 async function ensureMmNetwork() {
-  const probe = new ethers.JsonRpcProvider(rpcUrl);
-  const chainId = (await probe.getNetwork()).chainId;
+  const chainId = (await nodeProbe().getNetwork()).chainId;
+  chainIdNum = Number(chainId);
   const hex = "0x" + chainId.toString(16);
   const cur = await window.ethereum.request({ method: "eth_chainId" });
   if (cur.toLowerCase() === hex.toLowerCase()) return;
@@ -670,7 +718,8 @@ async function ensureMmNetwork() {
     await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
   } catch (e) {
     if (e.code === 4902) { // 链不存在 → 自动添加
-      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: hex, chainName: chainId === 31337n ? "Hardhat 本地链" : "CampusChain " + chainId, rpcUrls: [rpcUrl], nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 } }] });
+      const name = chainId === 1337n ? "Ganache 本地链" : chainId === 31337n ? "Hardhat 本地链" : "CampusChain " + chainId;
+      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: hex, chainName: name, rpcUrls: [rpcUrl], nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 } }] });
     } else throw e;
   }
 }
@@ -703,12 +752,14 @@ async function showConnectRequest(identity, addr) {
   document.getElementById("connAddrFull").textContent = addr;
   document.getElementById("connectModal").style.display = "flex";
   try {
-    const probe = new ethers.JsonRpcProvider(rpcUrl);
-    const net = await probe.getNetwork();
+    // 【提速】先让弹窗显示出来，链 ID 与余额并发向本地节点取，不阻塞界面
+    const probe = nodeProbe();
+    const [net, bal] = await Promise.all([probe.getNetwork(), probe.getBalance(addr)]);
     const chainId = Number(net.chainId);
-    document.getElementById("connNet").textContent = "● " + (chainId === 31337 ? "Hardhat 本地链" : "链 " + chainId);
-    document.getElementById("connNetName").textContent = chainId === 31337 ? "Hardhat 本地链（链 ID 31337）" : "链 ID " + chainId;
-    const bal = await probe.getBalance(addr);
+    chainIdNum = chainId;
+    const netName = chainId === 1337 ? "Ganache 本地链" : chainId === 31337 ? "Hardhat 本地链" : "链 " + chainId;
+    document.getElementById("connNet").textContent = "● " + netName;
+    document.getElementById("connNetName").textContent = netName + "（链 ID " + chainId + "）";
     document.getElementById("connBal").textContent = Number(ethers.formatEther(bal)).toFixed(4);
   } catch {
     document.getElementById("connNet").textContent = "● 未连接";
@@ -737,10 +788,11 @@ function rejectConnect() {
 // 【修改】enterApp 支持两种身份：本地钱包传 Wallet 对象；MetaMask 传 (signer, 地址)
 async function enterApp(identity, addrOverride) {
   try {
-    const probe = new ethers.JsonRpcProvider(rpcUrl);
-    const net = await probe.getNetwork();
-    // cacheTimeout: -1 关闭缓存，防止连续交易拿到过期 nonce
-    provider = new ethers.JsonRpcProvider(rpcUrl, Number(net.chainId), { cacheTimeout: -1, staticNetwork: true });
+    // 【提速】复用已有节点连接，链 ID 由 staticNetwork 缓存，只发一次探测请求
+    provider = nodeProbe();
+    nonceCache = null;
+    const net = await provider.getNetwork();
+    chainIdNum = Number(net.chainId);
     if (walletMode === "metamask") {
       wallet = identity;                  // MetaMask：签名走插件，不经网页
       account = addrOverride;
@@ -749,7 +801,20 @@ async function enterApp(identity, addrOverride) {
       account = identity.address;
     }
     if (!ethers.isAddress(contractAddr)) { toast("请先在「设置」中配置合约地址", "err"); }
-    contract = ethers.isAddress(contractAddr) ? new ethers.Contract(contractAddr, ABI, wallet) : null;
+    // 【提速】读写分离：查询直连本地节点（快），写操作只把 eth_sendTransaction 交给钱包
+    view = ethers.isAddress(contractAddr) ? new ethers.Contract(contractAddr, ABI, provider) : null;
+    contract = view ? makeWriter(view) : null;
+    // 【新增】地址自检：新建/重置 Ganache 工作区后，浏览器里存着的旧地址在当前链上已无合约，
+    // 所有读取都会报 "could not decode result data"。这里自动回退到 deploy.js 刚写入的默认地址。
+    if (view && (await provider.getCode(contractAddr)) === "0x") {
+      if (!eq(contractAddr, DEFAULT_ADDR) && (await provider.getCode(DEFAULT_ADDR)) !== "0x") {
+        contractAddr = DEFAULT_ADDR; localStorage.setItem(LS_ADDR, contractAddr);
+        view = new ethers.Contract(contractAddr, ABI, provider); contract = makeWriter(view);
+        toast("原合约地址在当前链上不存在，已自动切换到最新部署地址", "info");
+      } else {
+        toast("当前链上找不到该合约，请重新运行 start-campus.bat 部署", "err");
+      }
+    }
 
     document.getElementById("authView").style.display = "none";
     document.getElementById("appView").style.display = "block";
@@ -757,8 +822,8 @@ async function enterApp(identity, addrOverride) {
     document.getElementById("netBadge").textContent = `chainId ${net.chainId}`;
     document.getElementById("s-rpc").value = rpcUrl;
     document.getElementById("s-addr").value = contractAddr;
-    // 水龙头仅在本地测试链（chainId 31337）显示，与 RPC 地址写法无关
-    document.getElementById("faucetBox").style.display = Number(net.chainId) === 31337 ? "block" : "none";
+    // 水龙头仅在本地测试链（Ganache 1337 / Hardhat 31337）显示，与 RPC 地址写法无关
+    document.getElementById("faucetBox").style.display = [1337, 31337].includes(Number(net.chainId)) ? "block" : "none";
     // 【新增】钱包面板：按模式展示说明，仅本地钱包开放导出助记词
     document.getElementById("wpModeDesc").innerHTML = walletMode === "metamask"
       ? "当前模式：<b>🦊 MetaMask</b>。密钥由您自行管理，每笔交易在插件中手动签名。"
@@ -767,6 +832,8 @@ async function enterApp(identity, addrOverride) {
     document.getElementById("wpMnArea").style.display = "none";
     document.getElementById("wp-pass").value = "";
     toast(`欢迎回来，${shortAddr(account)}`, "ok");
+    // 【提速】MetaMask 模式下提前唤醒插件后台进程：首次交易弹窗不再因插件休眠而迟滞
+    if (walletMode === "metamask" && window.ethereum) window.ethereum.request({ method: "eth_chainId" }).catch(() => {});
     refreshAll();
   } catch (e) { toast("节点连接失败，请检查 RPC 地址：" + shortErr(e), "err"); }
 }
@@ -785,10 +852,17 @@ async function saveSettings() {
 async function faucet() {
   try {
     toast("水龙头转账中…", "info");
-    const f = new ethers.Wallet(FAUCET_PK, provider);
-    const resp = await f.sendTransaction({ to: account, value: ethers.parseEther("1") });
-    await resp.wait();
-    toast("已到账 1 ETH 测试币", "ok");
+    // 【修复】不再依赖写死的私钥：直接让本地节点用它自带的解锁账户代发
+    const accts = await provider.send("eth_accounts", []);
+    const from = accts.find(a => !eq(a, account));
+    if (!from) return toast("本地节点没有可用的解锁账户：请在 Ganache 中复制账户私钥导入 MetaMask", "err");
+    const amount = ethers.parseEther("5");
+    const gasPrice = ethers.getBigInt(await provider.send("eth_gasPrice", []));
+    const hash = await provider.send("eth_sendTransaction", [{
+      from, to: account, value: ethers.toBeHex(amount), gas: ethers.toBeHex(21000n), gasPrice: ethers.toBeHex(gasPrice)
+    }]);
+    await provider.waitForTransaction(hash, 1, 30000);
+    toast("已到账 5 ETH 测试币", "ok");
     refreshBalance();
   } catch (e) { toast("水龙头失败：" + shortErr(e), "err"); }
 }
@@ -798,6 +872,64 @@ function copyAddr() {
 }
 
 // ==================== 合约写操作 ====================
+// 【提速】写交易统一入口：nonce / gasPrice / gasLimit / chainId 全部并发向本地节点取，
+// 这样交给 MetaMask 的是一份已填好的完整交易，插件无需再回源估算，弹窗几乎立即出现。
+function makeWriter(viewContract) {
+  const iface = viewContract.interface;
+  return new Proxy({}, {
+    get(_, name) {
+      if (typeof name !== "string") return undefined;
+      let fn = null;
+      try { fn = iface.getFunction(name); } catch { return undefined; }
+      if (!fn || fn.stateMutability === "view" || fn.stateMutability === "pure") return undefined;
+      return (...args) => sendWrite(iface, name, args);
+    }
+  });
+}
+
+async function nextNonce() {
+  const remote = await provider.getTransactionCount(account, "pending");
+  if (nonceCache === null) return remote;
+  return BigInt(nonceCache) > remote ? BigInt(nonceCache) : remote;
+}
+
+async function estimateLimit(base) {
+  try {
+    const g = await provider.estimateGas(base);
+    return (g * 125n) / 100n + 20000n;   // 留 25% 余量，避免实际执行超出估算
+  } catch (e) {
+    if (e?.reason || e?.revert) throw e; // 合约必然回滚：提前报错，省掉一次无谓的签名等待
+    return 1500000n;                      // 节点无法估算时给足上限（本地链 gas 便宜）
+  }
+}
+
+async function sendWrite(iface, method, args) {
+  let ov = {};
+  const last = args[args.length - 1];
+  if (args.length && last && typeof last === "object" && !Array.isArray(last)) {
+    ov = last; args = args.slice(0, args.length - 1);
+  }
+  const base = { from: account, to: ethers.getAddress(contractAddr), value: BigInt(ov.value ?? 0), data: iface.encodeFunctionData(method, args) };
+  const [nonce, gasPrice, gasLimit] = await Promise.all([nextNonce(), provider.send("eth_gasPrice", []), estimateLimit(base)]);
+  try {
+    let resp;
+    if (walletMode === "metamask" && window.ethereum) {
+      // 【提速】直接把填好的完整交易交给插件：全程只有 1 次 eth_sendTransaction，
+      // 不再经过 ethers BrowserProvider 的链检测 / 区块号 / nonce / 估算等额外往返
+      const hex = ethers.toBeHex;
+      const hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{
+        from: base.from, to: base.to, data: base.data, value: hex(base.value),
+        nonce: hex(nonce), gasPrice: hex(gasPrice), gas: hex(gasLimit), chainId: hex(chainIdNum)
+      }] });
+      resp = { hash, nonce };
+    } else {
+      resp = await wallet.sendTransaction({ ...base, nonce, gasPrice, gasLimit, chainId: chainIdNum });
+    }
+    nonceCache = Number(resp.nonce ?? nonce) + 1;
+    return resp;
+  } catch (e) { nonceCache = null; throw e; }
+}
+
 async function registerFound() {
   if (!requireReady()) return;
   const t = val("f-time");
@@ -811,8 +943,13 @@ async function postBounty() {
   const t = val("b-time"), reward = val("b-reward");
   if (!t) return toast("请选择遗失时间", "err");
   if (!reward || Number(reward) <= 0) return toast("请填写有效的悬赏金额", "err");
+  let value;
+  try { value = ethers.parseEther(reward); } catch { return toast("悬赏金额格式不正确，应为数字（如 0.05）", "err"); }
   const ts = Math.floor(new Date(t).getTime() / 1000);
-  await sendTx(() => contract.postBounty(val("b-category"), val("b-desc"), val("b-location"), ts, val("b-contact"), { value: ethers.parseEther(reward) }), "悬赏已发布，赏金已托管进合约");
+  await sendTx(() => contract.postBounty(
+    val("b-category"), val("b-desc"), val("b-location"), ts, val("b-contact"),
+    { value }
+  ), "悬赏已发布，赏金已托管进合约");
 }
 
 async function claimFound(id) {
@@ -825,9 +962,32 @@ async function claimFound(id) {
 const tx = (fn, msg) => sendTx(fn, msg);
 
 // ==================== 读取与渲染 ====================
+// 【提速】一次刷新内共享同一批链上数据：统计卡片与两个列表并发读取、结果复用，
+// 请求数从「约 4×N 次串行」降到「1 批并行」。
+let shared = null;
+function loadShared() {
+  if (!shared) shared = (async () => {
+    const [fc, bc, timeout] = await Promise.all([view.foundCount(), view.bountyCount(), view.CONFIRM_TIMEOUT()]);
+    const newestFirst = n => Array.from({ length: n }, (_, i) => n - i);
+    const [found, bounties] = await Promise.all([
+      Promise.all(newestFirst(Number(fc)).map(i => view.getFoundItem(i))),
+      Promise.all(newestFirst(Number(bc)).map(i => view.getBounty(i)))
+    ]);
+    // 超时判定必须以链上区块时间为准，否则本地时钟与节点不一致时按钮显示会错乱
+    let now = Math.floor(Date.now() / 1000);
+    try { const blk = await provider.getBlock("latest"); if (blk && blk.timestamp) now = Number(blk.timestamp); } catch (e) { }
+    return { found, bounties, timeout: Number(timeout), now };
+  })();
+  return shared;
+}
+
 async function refreshAll() {
-  if (!contract) return;
-  await Promise.all([refreshBalance(), renderStats(), renderFound(), renderBounties()]);
+  if (!view) return;
+  shared = null;
+  nonceCache = null;   // 交易已上链，nonce 重新以节点为准
+  try {
+    await Promise.all([refreshBalance(), renderStats(), renderFound(), renderBounties()]);
+  } finally { shared = null; }
 }
 
 async function refreshBalance() {
@@ -839,20 +999,15 @@ async function refreshBalance() {
 
 async function renderStats() {
   try {
-    const [fc, bc] = await Promise.all([contract.foundCount(), contract.bountyCount()]);
+    const d = await loadShared();
     let escrow = 0n, done = 0, activeBounty = 0;
-    for (let i = 1; i <= Number(fc); i++) {
-      const it = await contract.getFoundItem(i);
-      escrow += it.deposit;
-      if (Number(it.status) === 3) done++;
-    }
-    for (let i = 1; i <= Number(bc); i++) {
-      const b = await contract.getBounty(i);
+    for (const it of d.found) { escrow += it.deposit; if (Number(it.status) === 3) done++; }
+    for (const b of d.bounties) {
       escrow += b.reward;
       if (Number(b.status) === 3) done++;
       if (Number(b.status) === 0) activeBounty++;
     }
-    document.getElementById("statFound").textContent = fc;
+    document.getElementById("statFound").textContent = d.found.length;
     document.getElementById("statBounty").textContent = activeBounty;
     document.getElementById("statDone").textContent = done;
     document.getElementById("statEscrow").textContent = Number(ethers.formatEther(escrow)).toFixed(3) + " ETH";
@@ -862,12 +1017,10 @@ async function renderStats() {
 async function renderFound() {
   const box = document.getElementById("foundList");
   try {
-    const n = Number(await contract.foundCount());
-    if (n === 0) { box.innerHTML = `<div class="empty">暂无拾获登记，去发布第一条吧 ✨</div>`; return; }
-    const timeout = Number(await contract.CONFIRM_TIMEOUT());
-    const now = Math.floor(Date.now() / 1000);
-    const items = [];
-    for (let i = n; i >= 1; i--) items.push(await contract.getFoundItem(i));
+    const d = await loadShared();
+    if (d.found.length === 0) { box.innerHTML = `<div class="empty">暂无拾获登记，去发布第一条吧 ✨</div>`; return; }
+    const timeout = d.timeout, now = d.now;
+    const items = d.found;
     box.innerHTML = items.map(it => {
       const s = Number(it.status);
       const mineFinder = eq(it.finder, account), mineClaimant = eq(it.claimant, account);
@@ -889,29 +1042,32 @@ async function renderFound() {
         ${actions}
       </div>`;
     }).join("");
-  } catch (e) { box.innerHTML = `<div class="empty">读取失败：${shortErr(e)}</div>`; }
+  } catch (e) { box.innerHTML = `<div class="empty">读取失败：${readErrHint(e)}</div>`; }
 }
 
 async function renderBounties() {
   const box = document.getElementById("bountyList");
   try {
-    const n = Number(await contract.bountyCount());
-    if (n === 0) { box.innerHTML = `<div class="empty">暂无悬赏</div>`; return; }
-    const timeout = Number(await contract.CONFIRM_TIMEOUT());
-    const now = Math.floor(Date.now() / 1000);
-    const items = [];
-    for (let i = n; i >= 1; i--) items.push(await contract.getBounty(i));
+    const d = await loadShared();
+    if (d.bounties.length === 0) { box.innerHTML = `<div class="empty">暂无悬赏</div>`; return; }
+    const timeout = d.timeout, now = d.now;
+    const items = d.bounties;
     const htmls = await Promise.all(items.map(async b => {
       const s = Number(b.status);
       const mineOwner = eq(b.owner, account), mineFinder = eq(b.finder, account);
       let applicantHtml = "";
       if (s === 0 && mineOwner) {
-        const apps = await contract.getBountyApplicants(b.id);
+        const apps = await view.getBountyApplicants(b.id);
         if (apps.length > 0) applicantHtml = `<div class="kv" style="margin-top:6px"><b>报名者（请线下核对后确认）：</b></div>` +
           apps.map(a => `<div class="applicant"><span>${shortAddr(a)}</span><button class="btn sm" style="margin-top:0" onclick="tx(()=>contract.confirmFinder(${b.id},'${a}'),'已确认拾获人')">确认是他/她</button></div>`).join("");
       }
       let actions = "";
-      if (s === 0 && !mineOwner) actions += `<button class="btn green sm" onclick="tx(()=>contract.applyForBounty(${b.id}),'报名成功，等待失主核对')">🙋 我捡到了</button>`;
+      if (s === 0 && !mineOwner) {
+        const applied = await view.hasApplied(b.id, account).catch(() => false);
+        actions += applied
+          ? `<button class="btn green sm" disabled>✅ 已报名，等待失主核对</button>`
+          : `<button class="btn green sm" onclick="tx(()=>contract.applyForBounty(${b.id}),'报名成功，等待失主核对')">🙋 我捡到了</button>`;
+      }
       if (s === 0 && mineOwner) actions += `<button class="btn ghost sm" onclick="tx(()=>contract.cancelBounty(${b.id}),'悬赏已撤销，赏金退回')">撤销悬赏</button>`;
       if (s === 1 && mineOwner) actions += `<button class="btn ghost sm" onclick="tx(()=>contract.unmatchBounty(${b.id}),'已取消匹配')">取消匹配</button>`;
       if (s === 1 && mineFinder) actions += `<button class="btn sm" onclick="tx(()=>contract.markBountyReturned(${b.id}),'已标记归还，等待失主确认')">标记已归还</button>`;
@@ -930,17 +1086,22 @@ async function renderBounties() {
       </div>`;
     }));
     box.innerHTML = htmls.join("");
-  } catch (e) { box.innerHTML = `<div class="empty">读取失败：${shortErr(e)}</div>`; }
+  } catch (e) { box.innerHTML = `<div class="empty">读取失败：${readErrHint(e)}</div>`; }
 }
 
 // ==================== 工具 ====================
 async function sendTx(fn, okMsg) {
+  // 【新增】交易期间给触发按钮加加载动画并禁用，防止重复点击（activeElement 即刚点击的按钮）
+  const btn = document.activeElement && document.activeElement.tagName === "BUTTON" && document.activeElement.classList.contains("btn") ? document.activeElement : null;
+  if (btn) { btn.classList.add("loading"); btn.disabled = true; }
   try {
     // 【新增】按钱包模式区分提示语
     toast(walletMode === "metamask" ? "请在 MetaMask 弹窗中确认签名…" : "本地钱包签名并发送交易…", "info");
     const resp = await fn();
     toast("等待区块确认…", "info");
-    await resp.wait();
+    // 【提速】直接向节点轮询交易回执（绕开 MetaMask 的 RPC 管道），配合 500ms 轮询，确认感知更快
+    const rc = provider ? await provider.waitForTransaction(resp.hash, 1, 30000) : await resp.wait();
+    if (rc && rc.status !== 1) throw new Error("交易执行失败（合约回滚）");
     toast(okMsg, "ok");
     refreshAll();
   } catch (e) {
@@ -949,6 +1110,9 @@ async function sendTx(fn, okMsg) {
     if (e.code === 4001 || e.code === "ACTION_REJECTED" || m.includes("user rejected")) m = "您已取消签名";
     if (m.includes("insufficient funds")) m = "余额不足，可先在「设置」页领取测试币";
     toast("操作失败：" + m, "err");
+  } finally {
+    // 【新增】无论成功/失败/取消，恢复按钮状态
+    if (btn) { btn.classList.remove("loading"); btn.disabled = false; }
   }
 }
 
@@ -962,6 +1126,13 @@ function eq(a, b) { return a && b && a.toLowerCase() === b.toLowerCase(); }
 function fmtTime(ts) { return new Date(Number(ts) * 1000).toLocaleString("zh-CN"); }
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 function shortErr(e) { return (e?.shortMessage || e?.reason || e?.message || String(e)).slice(0, 120); }
+// 【新增】把「could not decode result data」这类底层报错翻译成可操作的中文提示
+function readErrHint(e) {
+  const m = shortErr(e);
+  return /could not decode|MISSING_|out.of.bounds|bad result/i.test(m)
+    ? m + "：一般是合约地址在当前链上没有合约。请到「设置」核对合约地址（或重新运行 start-campus.bat 部署）。"
+    : m;
+}
 
 let toastTimer;
 function toast(msg, type = "info") {
@@ -982,5 +1153,7 @@ window.addEventListener("load", () => {
   else switchAuth("register");
 });
 </script>
+<!-- 【演示站】浏览器内置模拟账本：公网访问时不连任何 RPC，本机 127.0.0.1 仍走真实链 -->
+<script src="demo-chain.js"></script>
 </body>
 </html>
